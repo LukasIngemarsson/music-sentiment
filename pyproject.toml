@@ -12,11 +12,9 @@ dependencies = [
   "python-dotenv>=1.0",
 ]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["music_sentiment*"]
 
 [project.scripts]
 music-sentiment-weekly-post = "music_sentiment.weekly_post:run"

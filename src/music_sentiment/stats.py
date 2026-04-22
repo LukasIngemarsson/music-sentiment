@@ -1,11 +1,10 @@
 """Compute the weekly award stats across users."""
-from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
 from statistics import mean, pstdev
 
-from lastfm import Scrobble
+from .lastfm import Scrobble
 
 
 # Raw mean scores are small because many tracks contribute 0 (no tag match).
@@ -43,7 +42,9 @@ class Awards:
     most_varied: tuple[str, int] | None  # unique artists
 
 
-def _dim_leader(weeks: list[UserWeek], dim: str) -> tuple[str, float, float, float] | None:
+def _dim_leader(
+    weeks: list[UserWeek], dim: str
+) -> tuple[str, float, float, float] | None:
     means: dict[str, float] = {}
     for w in weeks:
         vals = w.dim_values(dim)
@@ -138,7 +139,9 @@ def _dominance(winner: float, runner_up: float) -> str:
     return "tight race"
 
 
-def _mood_line(emoji: str, label: str, award: tuple[str, float, float, float], key: str) -> str:
+def _mood_line(
+    emoji: str, label: str, award: tuple[str, float, float, float], key: str
+) -> str:
     u, w, r, avg = award
     tag = _dominance(w, r)
     return (
@@ -157,12 +160,14 @@ def format_awards(a: Awards) -> str:
     if a.happiest and a.happiest[1] > 0:
         lines.append(_mood_line("😄", "Happiest vibes", a.happiest, "happy"))
     if a.most_energetic and a.most_energetic[1] > 0:
-        lines.append(_mood_line("⚡", "Most energetic", a.most_energetic, "energy"))
+        lines.append(_mood_line("🔥", "Most energetic", a.most_energetic, "energy"))
     if a.most_chill and a.most_chill[1] > 0:
         lines.append(_mood_line("🧘", "Most chill", a.most_chill, "chill"))
     if a.most_obsessive:
         u, track, plays, share = a.most_obsessive
-        lines.append(f"🔁 Most obsessive: **{u}** — {plays}× *{track}* ({share:.0%} of their week)")
+        lines.append(
+            f"🔁 Most obsessive: **{u}** — {plays}× *{track}* ({share:.0%} of their week)"
+        )
     if a.most_chaotic:
         lines.append(_mood_line("🎢", "Most chaotic mood", a.most_chaotic, "σ"))
     if a.most_varied:

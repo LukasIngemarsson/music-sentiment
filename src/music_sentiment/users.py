@@ -1,5 +1,4 @@
 """Tiny JSON-file registry mapping Discord user IDs to Last.fm usernames."""
-from __future__ import annotations
 
 import json
 from pathlib import Path

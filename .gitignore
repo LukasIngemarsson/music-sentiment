@@ -5,3 +5,6 @@ __pycache__/
 data/
 members.txt
 *.log
+*.egg-info/
+build/
+dist/

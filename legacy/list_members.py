@@ -1,9 +1,8 @@
 """One-off: dump all members of DISCORD_GUILD_ID as `username: id`.
 
 Requires the Server Members Intent enabled in the Developer Portal.
-Run: python scripts/list_members.py
+Run: python legacy/list_members.py
 """
-from __future__ import annotations
 
 import asyncio
 import os
@@ -26,7 +25,7 @@ client = discord.Client(intents=intents)
 @client.event
 async def on_ready():
     guild = client.get_guild(GUILD_ID) or await client.fetch_guild(GUILD_ID)
-    print(f"# {guild.name} — {guild.member_count} members\n", file=sys.stderr)
+    print(f"# {guild.name} - {guild.member_count} members\n", file=sys.stderr)
     async for member in guild.fetch_members(limit=None):
         if member.bot:
             continue

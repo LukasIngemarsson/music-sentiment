@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "music-sentiment"
+version = "0.1.0"
+description = "Weekly Last.fm mood awards posted to Discord"
+requires-python = ">=3.12"
+dependencies = [
+  "aiohttp>=3.9",
+  "python-dotenv>=1.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+music-sentiment-weekly-post = "music_sentiment.weekly_post:run"
+music-sentiment-dry-run = "music_sentiment.dry_run:run"

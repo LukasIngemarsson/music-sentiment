@@ -1,5 +1,4 @@
-"""Last.fm API client — public read-only endpoints, app-level key only."""
-from __future__ import annotations
+"""Last.fm API client - public read-only endpoints, app-level key only."""
 
 import os
 import time
@@ -15,11 +14,15 @@ class Scrobble:
     artist: str
     track: str
     album: str
-    timestamp: int  # unix seconds; 0 if "now playing"
+    timestamp: int
 
 
 class LastFMClient:
-    def __init__(self, api_key: str | None = None, session: aiohttp.ClientSession | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        session: aiohttp.ClientSession | None = None,
+    ):
         self.api_key = api_key or os.environ["LASTFM_API_KEY"]
         self._session = session
         self._owns_session = session is None
@@ -34,13 +37,19 @@ class LastFMClient:
             await self._session.close()
 
     async def _get(self, method: str, **params) -> dict:
-        params = {"method": method, "api_key": self.api_key, "format": "json", **params}
-        async with self._session.get(BASE_URL, params=params) as r:
-            r.raise_for_status()
-            return await r.json()
+        params = {
+            "method": method,
+            "api_key": self.api_key,
+            "format": "json",
+            **params,
+        }
+        async with self._session.get(BASE_URL, params=params) as resp:
+            resp.raise_for_status()
+            return await resp.json()
 
-    async def recent_tracks(self, user: str, since: int, until: int | None = None) -> list[Scrobble]:
-        """All scrobbles for `user` in [since, until]. Paginates until exhausted."""
+    async def recent_tracks(
+        self, user: str, since: int, until: int | None = None
+    ) -> list[Scrobble]:
         out: list[Scrobble] = []
         page = 1
         while True:
@@ -51,15 +60,15 @@ class LastFMClient:
             tracks = data.get("recenttracks", {}).get("track", [])
             if isinstance(tracks, dict):
                 tracks = [tracks]
-            for t in tracks:
-                if t.get("@attr", {}).get("nowplaying") == "true":
+            for track in tracks:
+                if track.get("@attr", {}).get("nowplaying") == "true":
                     continue
-                ts = int(t.get("date", {}).get("uts", 0))
+                ts = int(track.get("date", {}).get("uts", 0))
                 out.append(
                     Scrobble(
-                        artist=t["artist"].get("#text", ""),
-                        track=t.get("name", ""),
-                        album=t.get("album", {}).get("#text", ""),
+                        artist=track["artist"].get("#text", ""),
+                        track=track.get("name", ""),
+                        album=track.get("album", {}).get("#text", ""),
                         timestamp=ts,
                     )
                 )
@@ -78,24 +87,24 @@ class LastFMClient:
             return False
 
     async def track_top_tags(self, artist: str, track: str) -> list[tuple[str, int]]:
-        """Return [(tag_name_lower, count_0_to_100)] for a track. Empty if unknown."""
         try:
-            data = await self._get("track.gettoptags", artist=artist, track=track, autocorrect=1)
+            data = await self._get(
+                "track.gettoptags", artist=artist, track=track, autocorrect=1
+            )
         except aiohttp.ClientResponseError:
             return []
         tags = data.get("toptags", {}).get("tag", [])
         if isinstance(tags, dict):
             tags = [tags]
-        out = []
-        for t in tags:
+        out: list[tuple[str, int]] = []
+        for tag in tags:
             try:
-                out.append((t["name"].lower(), int(t.get("count", 0))))
+                out.append((tag["name"].lower(), int(tag.get("count", 0))))
             except (KeyError, ValueError):
                 continue
         return out
 
     async def artist_top_tags(self, artist: str) -> list[tuple[str, int]]:
-        """Fallback when track-level tags are empty."""
         try:
             data = await self._get("artist.gettoptags", artist=artist, autocorrect=1)
         except aiohttp.ClientResponseError:
@@ -103,16 +112,15 @@ class LastFMClient:
         tags = data.get("toptags", {}).get("tag", [])
         if isinstance(tags, dict):
             tags = [tags]
-        out = []
-        for t in tags:
+        out: list[tuple[str, int]] = []
+        for tag in tags:
             try:
-                out.append((t["name"].lower(), int(t.get("count", 0))))
+                out.append((tag["name"].lower(), int(tag.get("count", 0))))
             except (KeyError, ValueError):
                 continue
         return out
 
 
 def week_window(now: int | None = None) -> tuple[int, int]:
-    """Return (since, until) unix timestamps for the trailing 7 days."""
     now = now or int(time.time())
     return now - 7 * 24 * 3600, now

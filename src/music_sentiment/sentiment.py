@@ -1,20 +1,11 @@
-"""Tag-based sentiment scoring from Last.fm tags.
-
-Each tag maps to one or more affective dimensions. Per-track score is the
-max-weighted tag hit (Last.fm tag counts are 0–100 popularity). Per-user
-score is the mean across all scrobbles, weighted by play frequency.
-"""
-from __future__ import annotations
+"""Tag-based sentiment scoring from Last.fm tags."""
 
 import json
 from pathlib import Path
 
 CACHE_PATH = Path("data/lastfm_tags.json")
 
-# Each entry: tag substring → {dimension: weight}. Substring match so e.g.
-# "melancholic" catches "melancholy". Weights are roughly unit-scale.
 TAG_MAP: dict[str, dict[str, float]] = {
-    # sadness
     "sad": {"sad": 1.0},
     "melancho": {"sad": 0.9},
     "depress": {"sad": 1.0},
@@ -27,7 +18,6 @@ TAG_MAP: dict[str, dict[str, float]] = {
     "sorrow": {"sad": 0.9},
     "emo": {"sad": 0.5},
     "tragic": {"sad": 0.7},
-    # happiness
     "happy": {"happy": 1.0},
     "upbeat": {"happy": 0.8, "energy": 0.5},
     "cheerful": {"happy": 0.9},
@@ -37,7 +27,6 @@ TAG_MAP: dict[str, dict[str, float]] = {
     "uplifting": {"happy": 0.8},
     "summer": {"happy": 0.4},
     "fun": {"happy": 0.5},
-    # energy
     "energetic": {"energy": 1.0},
     "hype": {"energy": 1.0},
     "banger": {"energy": 0.9},
@@ -47,7 +36,6 @@ TAG_MAP: dict[str, dict[str, float]] = {
     "heavy": {"energy": 0.7},
     "pumped": {"energy": 0.8},
     "dance": {"energy": 0.6, "happy": 0.3},
-    # chill (its own positive dimension)
     "chill": {"chill": 0.9},
     "chillout": {"chill": 1.0},
     "relax": {"chill": 0.9},
@@ -58,10 +46,8 @@ TAG_MAP: dict[str, dict[str, float]] = {
     "sleep": {"chill": 0.9},
     "lo-fi": {"chill": 0.8},
     "lofi": {"chill": 0.8},
-    # dark (proxy for sad-adjacent)
     "dark": {"sad": 0.4},
     "moody": {"sad": 0.5},
-    # genre → mood priors (weaker weights; only fire when stronger mood tags absent)
     "country": {"happy": 0.3},
     "bro-country": {"happy": 0.3, "energy": 0.2},
     "folk": {"chill": 0.3},
@@ -94,7 +80,6 @@ TAG_MAP: dict[str, dict[str, float]] = {
     "nu-metal": {"energy": 0.8},
     "rapcore": {"energy": 0.7},
     "grunge": {"energy": 0.4, "sad": 0.3},
-    "emo": {"sad": 0.5},
     "screamo": {"energy": 0.7, "sad": 0.4},
     "electronic": {"energy": 0.3},
     "house": {"energy": 0.5, "happy": 0.3},
@@ -110,25 +95,19 @@ TAG_MAP: dict[str, dict[str, float]] = {
 }
 
 DIMENSIONS = ("sad", "happy", "energy", "chill")
-
-
-# Order needles by length descending so "nu metal" beats "metal", "dream pop"
-# beats "pop", etc. (substring match would otherwise pick the generic one).
 _NEEDLES_BY_LENGTH = sorted(TAG_MAP.items(), key=lambda kv: -len(kv[0]))
 
 
 def score_tags(tags: list[tuple[str, int]]) -> dict[str, float]:
-    """Score a single track's tag list. Returns {dimension: score in [0,1]-ish}."""
-    scores = {d: 0.0 for d in DIMENSIONS}
+    scores = {dim: 0.0 for dim in DIMENSIONS}
     if not tags:
         return scores
     for tag_name, count in tags:
-        weight = count / 100.0  # Last.fm tag counts are 0–100
+        weight = count / 100.0
         for needle, dims in _NEEDLES_BY_LENGTH:
             if needle in tag_name:
-                for dim, w in dims.items():
-                    # Take the strongest signal per dimension rather than summing.
-                    contrib = w * weight
+                for dim, dim_weight in dims.items():
+                    contrib = dim_weight * weight
                     if abs(contrib) > abs(scores[dim]):
                         scores[dim] = contrib
                 break
@@ -136,19 +115,15 @@ def score_tags(tags: list[tuple[str, int]]) -> dict[str, float]:
 
 
 class TagSentimentCache:
-    """Persistent cache of per-track sentiment + raw tags."""
-
     def __init__(self):
-        # {key: {"scores": {...}, "tags": [[name, count], ...]}}
         self._cache: dict[str, dict] = {}
         if CACHE_PATH.exists():
             raw = json.loads(CACHE_PATH.read_text())
-            # Back-compat: old cache was {key: scores_dict}; upgrade lazily.
-            for k, v in raw.items():
-                if isinstance(v, dict) and "scores" in v:
-                    self._cache[k] = v
+            for key, value in raw.items():
+                if isinstance(value, dict) and "scores" in value:
+                    self._cache[key] = value
                 else:
-                    self._cache[k] = {"scores": v, "tags": []}
+                    self._cache[key] = {"scores": value, "tags": []}
 
     @staticmethod
     def _key(artist: str, track: str) -> str:
@@ -162,7 +137,7 @@ class TagSentimentCache:
         entry = self._cache.get(self._key(artist, track))
         if not entry:
             return []
-        return [(n, c) for n, c in entry.get("tags", [])]
+        return [(name, count) for name, count in entry.get("tags", [])]
 
     def put(
         self,
@@ -173,7 +148,7 @@ class TagSentimentCache:
     ) -> None:
         self._cache[self._key(artist, track)] = {
             "scores": scores,
-            "tags": [[n, c] for n, c in (tags or [])],
+            "tags": [[name, count] for name, count in (tags or [])],
         }
 
     def save(self) -> None:

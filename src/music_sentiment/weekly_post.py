@@ -1,22 +1,16 @@
 """GitHub Actions entrypoint: build weekly awards and post to Discord webhook."""
 
-from __future__ import annotations
-
 import asyncio
 import datetime as dt
 import os
-import sys
-from pathlib import Path
 
 import aiohttp
 from dotenv import load_dotenv
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import users
-from lastfm import LastFMClient, week_window
-from sentiment import TagSentimentCache, score_tags
-from stats import UserWeek, compute, format_awards
+from . import users
+from .lastfm import LastFMClient, week_window
+from .sentiment import TagSentimentCache, score_tags
+from .stats import UserWeek, compute, format_awards
 
 load_dotenv()
 
@@ -29,7 +23,6 @@ def _stockholm_now() -> dt.datetime:
 
         return dt.datetime.now(ZoneInfo("Europe/Stockholm"))
     except Exception:
-        # Fallback; GitHub-hosted Python has zoneinfo, but keep this robust.
         return dt.datetime.now(dt.timezone.utc).astimezone(STOCKHOLM_TZ)
 
 
@@ -74,7 +67,7 @@ async def _build_weekly_message() -> str:
     cache = TagSentimentCache()
     try:
         async with LastFMClient() as lfm:
-            for discord_id, lfm_user in reg.items():
+            for _discord_id, lfm_user in reg.items():
                 try:
                     scrobbles = await lfm.recent_tracks(
                         lfm_user, since=since, until=until
@@ -88,7 +81,7 @@ async def _build_weekly_message() -> str:
                 sentiment = await _resolve_sentiment(lfm, cache, unique)
                 weeks.append(
                     UserWeek(
-                        user=f"<@{discord_id}>",
+                        user=lfm_user,
                         scrobbles=scrobbles,
                         track_sentiment=sentiment,
                     )
@@ -124,5 +117,5 @@ async def main() -> None:
     print("[weekly_post] posted")
 
 
-if __name__ == "__main__":
+def run() -> None:
     asyncio.run(main())

@@ -1,0 +1,45 @@
+name: Weekly Last.fm Awards
+
+on:
+  schedule:
+    # Friday 10:00 Europe/Stockholm (both DST variants)
+    - cron: "0 8 * * 5"
+    - cron: "0 9 * * 5"
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: "Ignore time gate and run now"
+        required: false
+        default: "true"
+      dry_run:
+        description: "Compute only, do not post to Discord"
+        required: false
+        default: "false"
+
+jobs:
+  weekly-awards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run weekly report
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          USERS_JSON: ${{ secrets.USERS_JSON }}
+          FORCE_RUN: ${{ github.event.inputs.force_run || 'false' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          mkdir -p data
+          printf '%s' "$USERS_JSON" > data/users.json
+          python scripts/weekly_post.py

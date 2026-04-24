@@ -2,15 +2,10 @@ name: Weekly Last.fm Awards
 
 on:
   schedule:
-    # Friday 10:00 Europe/Stockholm (both DST variants)
-    - cron: "0 8 * * 5"
+    # Friday morning Europe/Stockholm (09:00 UTC)
     - cron: "0 9 * * 5"
   workflow_dispatch:
     inputs:
-      force_run:
-        description: "Ignore time gate and run now"
-        required: false
-        default: "true"
       dry_run:
         description: "Compute only, do not post to Discord"
         required: false
@@ -37,7 +32,6 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           USERS_JSON: ${{ secrets.USERS_JSON }}
-          FORCE_RUN: ${{ github.event.inputs.force_run || 'false' }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
           mkdir -p data

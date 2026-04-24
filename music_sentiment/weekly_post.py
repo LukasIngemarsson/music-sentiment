@@ -1,7 +1,6 @@
 """GitHub Actions entrypoint: build weekly awards and post to Discord webhook."""
 
 import asyncio
-import datetime as dt
 import os
 
 import aiohttp
@@ -13,25 +12,6 @@ from .sentiment import TagSentimentCache, score_tags
 from .stats import UserWeek, compute, format_awards
 
 load_dotenv()
-
-STOCKHOLM_TZ = dt.timezone(dt.timedelta(hours=1))
-
-
-def _stockholm_now() -> dt.datetime:
-    try:
-        from zoneinfo import ZoneInfo
-
-        return dt.datetime.now(ZoneInfo("Europe/Stockholm"))
-    except Exception:
-        return dt.datetime.now(dt.timezone.utc).astimezone(STOCKHOLM_TZ)
-
-
-def _should_post_now() -> bool:
-    force = os.environ.get("FORCE_RUN", "").lower() in {"1", "true", "yes", "on"}
-    if force:
-        return True
-    now = _stockholm_now()
-    return now.weekday() == 4 and now.hour == 10
 
 
 async def _resolve_sentiment(
@@ -102,11 +82,6 @@ async def _post_webhook(content: str) -> None:
 
 
 async def main() -> None:
-    if not _should_post_now():
-        now = _stockholm_now().isoformat(timespec="seconds")
-        print(f"Skipping run at {now}; not Friday 10:00 Europe/Stockholm.")
-        return
-
     msg = await _build_weekly_message()
     dry_run = os.environ.get("DRY_RUN", "").lower() in {"1", "true", "yes", "on"}
     if dry_run:

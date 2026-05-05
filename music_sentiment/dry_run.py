@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from . import users
 from .lastfm import LastFMClient, week_window
 from .sentiment import DIMENSIONS, TagSentimentCache, score_tags
-from .stats import DISPLAY_SCALE, UserWeek, compute, format_awards
+from .stats import UserWeek, compute, format_awards
 
 load_dotenv()
 
@@ -48,10 +48,9 @@ def print_user_breakdown(week: UserWeek, tags_map: dict, top_n: int = 8) -> None
         vals = week.dim_values(dim)
         if vals:
             raw = mean(vals)
-            scaled = min(1.0, raw * DISPLAY_SCALE)
             hit_rate = sum(1 for v in vals if v > 0) / len(vals)
             print(
-                f"  {dim:>7}: raw {raw:.3f} -> display {scaled:.2f}"
+                f"  {dim:>7}: {raw:.3f}"
                 f"  ({hit_rate:.0%} of tracks had a {dim} tag)"
             )
 
@@ -113,7 +112,7 @@ async def main(verbose: bool) -> None:
             print_user_breakdown(week, all_tags[week.user])
 
     print("\n" + "=" * 48)
-    print(format_awards(compute(weeks)))
+    print(format_awards(compute(weeks, period=(since, until))))
 
 
 def run() -> None:

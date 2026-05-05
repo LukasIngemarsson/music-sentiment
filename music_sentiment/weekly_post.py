@@ -69,7 +69,7 @@ async def _build_weekly_message() -> str:
     finally:
         cache.save()
 
-    return format_awards(compute(weeks))
+    return format_awards(compute(weeks, period=(since, until)))
 
 
 async def _post_webhook(content: str) -> None:

@@ -1,16 +1,11 @@
-"""Compute the weekly award stats across users."""
+"""Compute the weekly award stats across users and format for Discord."""
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from statistics import mean, pstdev
 
 from .lastfm import Scrobble
-
-
-# Raw mean scores are small because many tracks contribute 0 (no tag match).
-# Multiply for display so numbers read in a natural 0–1-ish range. This is
-# pure presentation — it does not change rankings.
-DISPLAY_SCALE = 1.0
 
 
 @dataclass
@@ -30,21 +25,32 @@ class UserWeek:
 
 
 @dataclass
+class MoodAward:
+    user: str
+    winner: float
+    runner_up: float
+    group_avg: float
+
+
+@dataclass
 class Awards:
-    most_listened: tuple[str, int] | None
-    # mood awards are (winner, winner_val, runner_up_val, group_avg)
-    saddest: tuple[str, float, float, float] | None
-    happiest: tuple[str, float, float, float] | None
-    most_energetic: tuple[str, float, float, float] | None
-    most_chill: tuple[str, float, float, float] | None
-    most_obsessive: tuple[str, str, int, float] | None  # user, track, plays, share
-    most_chaotic: tuple[str, float, float, float] | None
-    most_varied: tuple[str, int] | None  # unique artists
+    podium: list[tuple[str, int]] = field(default_factory=list)  # ranked by scrobbles
+    total_scrobbles: int = 0
+    total_listeners: int = 0
+    period: tuple[int, int] | None = None  # (since, until) unix timestamps
+
+    saddest: MoodAward | None = None
+    happiest: MoodAward | None = None
+    most_energetic: MoodAward | None = None
+    most_chill: MoodAward | None = None
+    most_chaotic: MoodAward | None = None
+
+    most_obsessive: tuple[str, str, int, float] | None = None  # user, track, plays, share
+    most_varied: tuple[str, int] | None = None  # user, unique artists
+    group_anthem: tuple[str, int, int] | None = None  # track, distinct_listeners, total_plays
 
 
-def _dim_leader(
-    weeks: list[UserWeek], dim: str
-) -> tuple[str, float, float, float] | None:
+def _dim_leader(weeks: list[UserWeek], dim: str) -> MoodAward | None:
     means: dict[str, float] = {}
     for w in weeks:
         vals = w.dim_values(dim)
@@ -52,25 +58,24 @@ def _dim_leader(
             means[w.user] = mean(vals)
     if not means:
         return None
-    sorted_means = sorted(means.values(), reverse=True)
+    sorted_vals = sorted(means.values(), reverse=True)
     winner_user = max(means.items(), key=lambda x: x[1])[0]
-    winner_val = sorted_means[0]
-    runner_up = sorted_means[1] if len(sorted_means) > 1 else 0.0
-    group_avg = sum(sorted_means) / len(sorted_means)
-    return (winner_user, winner_val, runner_up, group_avg)
-
-
-def compute(weeks: list[UserWeek]) -> Awards:
-    most_listened = max(
-        ((w.user, len(w.scrobbles)) for w in weeks if w.scrobbles),
-        key=lambda x: x[1],
-        default=None,
+    return MoodAward(
+        user=winner_user,
+        winner=sorted_vals[0],
+        runner_up=sorted_vals[1] if len(sorted_vals) > 1 else 0.0,
+        group_avg=sum(sorted_vals) / len(sorted_vals),
     )
 
-    saddest = _dim_leader(weeks, "sad")
-    happiest = _dim_leader(weeks, "happy")
-    most_energetic = _dim_leader(weeks, "energy")
-    most_chill = _dim_leader(weeks, "chill")
+
+def compute(
+    weeks: list[UserWeek], period: tuple[int, int] | None = None
+) -> Awards:
+    listening = sorted(
+        ((w.user, len(w.scrobbles)) for w in weeks if w.scrobbles),
+        key=lambda x: x[1],
+        reverse=True,
+    )
 
     mood_stdevs: dict[str, float] = {}
     for w in weeks:
@@ -79,19 +84,18 @@ def compute(weeks: list[UserWeek]) -> Awards:
         nets = [h - s for h, s in zip(happies, sads)]
         if len(nets) > 1:
             mood_stdevs[w.user] = pstdev(nets)
+    chaotic = None
     if mood_stdevs:
-        sorted_stdevs = sorted(mood_stdevs.values(), reverse=True)
-        chaotic_user = max(mood_stdevs.items(), key=lambda x: x[1])[0]
-        most_chaotic = (
-            chaotic_user,
-            sorted_stdevs[0],
-            sorted_stdevs[1] if len(sorted_stdevs) > 1 else 0.0,
-            sum(sorted_stdevs) / len(sorted_stdevs),
+        sorted_vals = sorted(mood_stdevs.values(), reverse=True)
+        u = max(mood_stdevs.items(), key=lambda x: x[1])[0]
+        chaotic = MoodAward(
+            user=u,
+            winner=sorted_vals[0],
+            runner_up=sorted_vals[1] if len(sorted_vals) > 1 else 0.0,
+            group_avg=sum(sorted_vals) / len(sorted_vals),
         )
-    else:
-        most_chaotic = None
 
-    most_obsessive = None
+    obsessive = None
     best_share = 0.0
     for w in weeks:
         if not w.scrobbles:
@@ -101,78 +105,142 @@ def compute(weeks: list[UserWeek]) -> Awards:
         share = plays / len(w.scrobbles)
         if share > best_share and plays >= 3:
             best_share = share
-            most_obsessive = (w.user, f"{artist} — {track}", plays, share)
+            obsessive = (w.user, f"{artist} — {track}", plays, share)
 
-    most_varied = max(
+    varied = max(
         ((w.user, len({s.artist for s in w.scrobbles})) for w in weeks if w.scrobbles),
         key=lambda x: x[1],
         default=None,
     )
 
+    track_listeners: dict[tuple[str, str], set[str]] = {}
+    track_plays: Counter[tuple[str, str]] = Counter()
+    for w in weeks:
+        seen_in_week: set[tuple[str, str]] = set()
+        for s in w.scrobbles:
+            if not s.artist or not s.track:
+                continue
+            key = (s.artist, s.track)
+            track_plays[key] += 1
+            seen_in_week.add(key)
+        for key in seen_in_week:
+            track_listeners.setdefault(key, set()).add(w.user)
+    anthem = None
+    shared = [
+        (key, len(users), track_plays[key])
+        for key, users in track_listeners.items()
+        if len(users) >= 2
+    ]
+    if shared:
+        shared.sort(key=lambda x: (x[1], x[2]), reverse=True)
+        (artist, track), n_users, plays = shared[0]
+        anthem = (f"{artist} — {track}", n_users, plays)
+
     return Awards(
-        most_listened=most_listened,
-        saddest=saddest,
-        happiest=happiest,
-        most_energetic=most_energetic,
-        most_chill=most_chill,
-        most_obsessive=most_obsessive,
-        most_chaotic=most_chaotic,
-        most_varied=most_varied,
+        podium=listening[:5],
+        total_scrobbles=sum(n for _, n in listening),
+        total_listeners=len(listening),
+        period=period,
+        saddest=_dim_leader(weeks, "sad"),
+        happiest=_dim_leader(weeks, "happy"),
+        most_energetic=_dim_leader(weeks, "energy"),
+        most_chill=_dim_leader(weeks, "chill"),
+        most_chaotic=chaotic,
+        most_obsessive=obsessive,
+        most_varied=varied,
+        group_anthem=anthem,
     )
 
 
-def _fmt(v: float) -> str:
-    return f"{v * DISPLAY_SCALE:.2f}"
-
-
 def _dominance(winner: float, runner_up: float) -> str:
-    """Characterize how decisive the win was."""
     if runner_up <= 0:
         return "solo scorer"
     ratio = winner / runner_up
     if ratio >= 2.5:
-        return "dominant"
+        return "runaway"
     if ratio >= 1.5:
         return "clear lead"
     if ratio >= 1.15:
         return "narrow lead"
-    return "tight race"
+    return "photo finish"
 
 
-def _mood_line(
-    emoji: str, label: str, award: tuple[str, float, float, float], key: str
-) -> str:
-    u, w, r, avg = award
-    tag = _dominance(w, r)
+def _mood_line(emoji: str, label: str, key: str, a: MoodAward) -> str:
+    tag = _dominance(a.winner, a.runner_up)
     return (
-        f"{emoji} {label}: **{u}** — {key} {_fmt(w)}  "
-        f"_(next: {_fmt(r)} · avg: {_fmt(avg)} · {tag})_"
+        f"{emoji} **{label}** — **{a.user}** · "
+        f"{key} {a.winner:.2f} · {tag} · avg {a.group_avg:.2f}"
     )
 
 
+def _format_period(period: tuple[int, int]) -> str:
+    since, until = period
+    s = datetime.fromtimestamp(since, tz=timezone.utc).strftime("%b %-d")
+    u = datetime.fromtimestamp(until, tz=timezone.utc).strftime("%b %-d")
+    return f"{s} – {u}"
+
+
+_PODIUM_MEDALS = ("🥇", "🥈", "🥉")
+
+
 def format_awards(a: Awards) -> str:
-    lines = ["**Weekly Music Awards**"]
-    if a.most_listened:
-        u, n = a.most_listened
-        lines.append(f"🎧 Most listened: **{u}** — {n} scrobbles")
-    if a.saddest and a.saddest[1] > 0:
-        lines.append(_mood_line("😢", "Saddest vibes", a.saddest, "sad"))
-    if a.happiest and a.happiest[1] > 0:
-        lines.append(_mood_line("😄", "Happiest vibes", a.happiest, "happy"))
-    if a.most_energetic and a.most_energetic[1] > 0:
-        lines.append(_mood_line("🔥", "Most energetic", a.most_energetic, "energy"))
-    if a.most_chill and a.most_chill[1] > 0:
-        lines.append(_mood_line("🧘", "Most chill", a.most_chill, "chill"))
+    if not a.podium:
+        return (
+            "## 🎵 Weekly Music Awards\n"
+            "The silence is deafening — nobody scrobbled this week."
+        )
+
+    lines: list[str] = ["## 🎵 Weekly Music Awards"]
+    subtitle_bits = []
+    if a.period:
+        subtitle_bits.append(_format_period(a.period))
+    subtitle_bits.append(f"{a.total_scrobbles:,} scrobbles")
+    subtitle_bits.append(
+        f"{a.total_listeners} listener" + ("s" if a.total_listeners != 1 else "")
+    )
+    lines.append(" · ".join(subtitle_bits))
+
+    lines.append("")
+    lines.append("### 🏆 Listening Podium")
+    for i, (user, n) in enumerate(a.podium):
+        marker = _PODIUM_MEDALS[i] if i < len(_PODIUM_MEDALS) else f"`#{i + 1}`"
+        lines.append(f"{marker} **{user}** — {n:,} scrobbles")
+
+    mood_lines: list[str] = []
+    if a.happiest and a.happiest.winner > 0:
+        mood_lines.append(_mood_line("😄", "Happiest", "happy", a.happiest))
+    if a.saddest and a.saddest.winner > 0:
+        mood_lines.append(_mood_line("😢", "Saddest", "sad", a.saddest))
+    if a.most_energetic and a.most_energetic.winner > 0:
+        mood_lines.append(_mood_line("🔥", "Most energetic", "energy", a.most_energetic))
+    if a.most_chill and a.most_chill.winner > 0:
+        mood_lines.append(_mood_line("🧘", "Most chill", "chill", a.most_chill))
+    if a.most_chaotic:
+        mood_lines.append(_mood_line("🎢", "Most chaotic mood", "σ", a.most_chaotic))
+    if mood_lines:
+        lines.append("")
+        lines.append("### 🎭 Mood")
+        lines.extend(mood_lines)
+
+    extras: list[str] = []
     if a.most_obsessive:
         u, track, plays, share = a.most_obsessive
-        lines.append(
-            f"🔁 Most obsessive: **{u}** — {plays}× *{track}* ({share:.0%} of their week)"
+        extras.append(
+            f"🔁 **Most obsessive** — **{u}** spun “{track}” "
+            f"{plays}× ({share:.0%} of their week)"
         )
-    if a.most_chaotic:
-        lines.append(_mood_line("🎢", "Most chaotic mood", a.most_chaotic, "σ"))
     if a.most_varied:
         u, n = a.most_varied
-        lines.append(f"🌈 Widest taste: **{u}** — {n} distinct artists")
-    if len(lines) == 1:
-        lines.append("_No data this week — did anyone actually listen to anything?_")
+        extras.append(f"🌈 **Widest taste** — **{u}** explored {n} distinct artists")
+    if a.group_anthem:
+        track, n_users, plays = a.group_anthem
+        extras.append(
+            f"🎤 **Group anthem** — “{track}” shared by {n_users} listeners "
+            f"({plays} plays)"
+        )
+    if extras:
+        lines.append("")
+        lines.append("### 🎯 Honorable Mentions")
+        lines.extend(extras)
+
     return "\n".join(lines)

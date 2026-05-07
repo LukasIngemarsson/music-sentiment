@@ -72,7 +72,7 @@ def compute(
     weeks: list[UserWeek], period: tuple[int, int] | None = None
 ) -> Awards:
     listening = sorted(
-        ((w.user, len(w.scrobbles)) for w in weeks if w.scrobbles),
+        ((w.user, len(w.scrobbles)) for w in weeks),
         key=lambda x: x[1],
         reverse=True,
     )
@@ -137,9 +137,9 @@ def compute(
         anthem = (f"{artist} — {track}", n_users, plays)
 
     return Awards(
-        podium=listening[:5],
+        podium=listening,
         total_scrobbles=sum(n for _, n in listening),
-        total_listeners=len(listening),
+        total_listeners=sum(1 for _, n in listening if n > 0),
         period=period,
         saddest=_dim_leader(weeks, "sad"),
         happiest=_dim_leader(weeks, "happy"),
@@ -184,7 +184,7 @@ _PODIUM_MEDALS = ("🥇", "🥈", "🥉")
 
 
 def format_awards(a: Awards) -> str:
-    if not a.podium:
+    if not a.podium or a.total_scrobbles == 0:
         return (
             "## 🎵 Weekly Music Awards\n"
             "The silence is deafening — nobody scrobbled this week."
@@ -201,10 +201,11 @@ def format_awards(a: Awards) -> str:
     lines.append(" · ".join(subtitle_bits))
 
     lines.append("")
-    lines.append("### 🏆 Listening Podium")
+    lines.append("### 🏆 Listening Leaderboard")
     for i, (user, n) in enumerate(a.podium):
         marker = _PODIUM_MEDALS[i] if i < len(_PODIUM_MEDALS) else f"`#{i + 1}`"
-        lines.append(f"{marker} **{user}** — {n:,} scrobbles")
+        suffix = " 💤" if n == 0 else ""
+        lines.append(f"{marker} **{user}** — {n:,} scrobbles{suffix}")
 
     mood_lines: list[str] = []
     if a.happiest and a.happiest.winner > 0:

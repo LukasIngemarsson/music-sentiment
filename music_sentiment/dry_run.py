@@ -122,3 +122,7 @@ def run() -> None:
     )
     args = parser.parse_args()
     asyncio.run(main(args.verbose))
+
+
+if __name__ == "__main__":
+    run()
